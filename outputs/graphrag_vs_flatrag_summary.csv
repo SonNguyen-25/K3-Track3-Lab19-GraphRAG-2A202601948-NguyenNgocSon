@@ -1,0 +1,16 @@
+Loai cau hoi,Metric,Flat RAG,GraphRAG,Nhan xet phan tich
+cross-doc,Comprehensiveness,1.818,1.909,Hai phuong phap gan nhau.
+cross-doc,Faithfulness,2.045,2.045,Hai phuong phap gan nhau.
+cross-doc,Multi-hop reasoning,1.773,1.909,Hai phuong phap gan nhau.
+cross-doc,Latency (s),5.007,4.103,GraphRAG khong dat hon trong sample nay.
+cross-doc,Token usage,929.545,878.909,GraphRAG khong dat hon trong sample nay.
+factoid,Comprehensiveness,2.8,2.8,Hai phuong phap gan nhau.
+factoid,Faithfulness,3.0,2.8,Hai phuong phap gan nhau.
+factoid,Multi-hop reasoning,2.8,2.8,Hai phuong phap gan nhau.
+factoid,Latency (s),5.006,3.861,GraphRAG khong dat hon trong sample nay.
+factoid,Token usage,768.2,787.2,Flat RAG thuong re/nhanh hon.
+multi-hop,Comprehensiveness,1.783,1.609,Hai phuong phap gan nhau.
+multi-hop,Faithfulness,1.783,1.609,Hai phuong phap gan nhau.
+multi-hop,Multi-hop reasoning,1.739,1.609,Hai phuong phap gan nhau.
+multi-hop,Latency (s),5.215,4.422,GraphRAG khong dat hon trong sample nay.
+multi-hop,Token usage,913.261,1080.435,Flat RAG thuong re/nhanh hon.
