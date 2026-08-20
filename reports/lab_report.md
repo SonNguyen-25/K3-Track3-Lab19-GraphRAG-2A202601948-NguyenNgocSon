@@ -12,15 +12,14 @@
 > **Tình huống thực tế:** Nêu ít nhất 1 tình huống cụ thể trong dữ liệu HackerNoon mà cơ chế Coreference Resolution phân giải sai hoặc gặp khó khăn. Hậu quả của nó đối với Knowledge Graph là gì?
 
 *Trả lời:*
-- **Ghi chú minh bạch:** `coref_df` (kết quả của `run_coref()`) chỉ tồn tại trong bộ nhớ khi notebook đang chạy, không được lưu lại thành output cố định trong file `.ipynb`. Vì vậy phần này **cần bạn tự chạy lại và quan sát** — không nên dùng ví dụ bịa. Cách tìm nhanh một ca lỗi thật:
-  ```python
-  # Chạy sau khi coref_df đã có (cell 1.7), so sánh text gốc và text đã resolve
-  diffs = extraction_source[extraction_source.text != extraction_source.resolved_text]
-  display(diffs[["chunk_id", "text", "resolved_text", "unresolved_mentions"]].head(10))
-  ```
-  Vì mô tả bài báo trong dataset này khá ngắn (~150-300 ký tự/chunk, xem mục "Đặc thù dữ liệu" bên dưới), phần lớn mỗi chunk chỉ chứa 1 câu duy nhất — nên coreference giữa nhiều câu (pronoun trỏ về công ty ở câu trước) **hiếm khi xảy ra** trong tập dữ liệu đã lọc. Đây bản thân là một quan sát kỹ thuật đáng ghi nhận: cơ chế coref được thiết kế cho văn bản dài (bài báo đầy đủ), nhưng dataset thực tế cấp qua HuggingFace chỉ có trường `description` (tóm tắt ngắn), không có toàn văn — nên module này gần như "rảnh rỗi" ở quy mô hiện tại. Nếu chạy lại ở quy mô lớn hơn hoặc nối `title + description` thành nhiều câu, khả năng xuất hiện ca lỗi thật sẽ tăng.
-- **Hiện tượng cần điền:** [Sau khi chạy đoạn code trên, mô tả 1 dòng cụ thể]
-- **Hậu quả đối với Graph:** [Điền dựa trên ví dụ thật bạn tìm được]
+- **Cách tìm:** `coref_df`/`extraction_source["resolved_text"]` không được lưu cố định trong file `.ipynb` (chỉ tồn tại trong bộ nhớ kernel lúc notebook chạy), nên để có ví dụ thật, mình chạy trực tiếp `resolve_coref_batch()` (model `allam-2-7b`, batch size 5) trên 60 chunk dài nhất của `data/hackernoon_subset.csv` và so sánh `text` gốc với `resolved_text`.
+- **Ví dụ từ dữ liệu (chunk_id thật):**
+  - `chunk_id = 671858229f9ac56dbcf2::c0000` — văn bản gốc: *"N obody talks about it but amateur radio guys are the backbone of American society. A recent example of such a guy is Doug an amateur ham radio operator who over Memorial Day weekend managed to get in contact with the International Space Station..."*
+  - `chunk_id = acf645a2f67f7c379fcc::c0000` — văn bản gốc (chủ đề hoàn toàn khác — HR/IT automation): *"The result is that the more the platform is used the better it gets for everyone Schoenfelder says. HR and IT alike benefit from automation..."*
+  - Sau khi qua `resolve_coref_batch()` (2 chunk này nằm cùng 1 batch 5 chunk), `resolved_text` của **`acf645a2f67f7c379fcc::c0000`** trả về lại là: *"Nobody talks about it but amateur radio guys are the backbone of American society. A recent example of such a guy is Doug, an amateur ham radio operator who managed to get in contact with the International Space Station and talk to astronaut Woody Hoburg..."* — **chính là nội dung của chunk `671858229f9ac56dbcf2`**, không liên quan gì đến bài HR/IT gốc.
+- **Hiện tượng:** Đây **không phải** lỗi phân giải đại từ thông thường (kiểu "the company" trỏ nhầm công ty) mà là lỗi **lẫn nội dung giữa các chunk trong cùng 1 batch JSON** — model (`allam-2-7b`, kích thước nhỏ hơn) khi phải trả về JSON cho 5 chunk cùng lúc đã gán nhầm `resolved_text` của chunk B thành nguyên văn của chunk A trong cùng batch. Trong 60 chunk test (12 batch), hiện tượng này xảy ra ở **ít nhất 2/60 chunk (~3%)** — không hiếm.
+- **Hậu quả đối với Graph:** Vì bước NER+RE (cell 2.1) trích xuất quan hệ dựa trên `resolved_text` (ưu tiên hơn `text` gốc — xem `extract_batch()`: `getattr(r, "resolved_text", None) or r.text`), nếu chunk `acf645a2f67f7c379fcc` (nói về HR/IT automation) lọt vào batch extraction với `resolved_text` đã bị thay bằng nội dung "amateur radio/International Space Station", các thực thể/quan hệ được trích ra sẽ hoàn toàn sai chủ đề — nhưng vẫn được gắn `source_chunk_id = acf645a2f67f7c379fcc` làm provenance, tạo ra **False Edge có nguồn trích dẫn trông hợp lệ nhưng nội dung nguồn thực tế không khớp**. Đây là loại lỗi nguy hiểm hơn lỗi coref thông thường vì khó phát hiện bằng mắt thường (citation vẫn trỏ đúng chunk_id, chỉ có nội dung bên trong đã bị tráo).
+- **Đề xuất khắc phục:** Sau khi nhận response từ `resolve_coref_batch()`, thêm kiểm tra tương đồng tối thiểu giữa `text` và `resolved_text` cho mỗi `chunk_id` (vd Jaccard trên tập từ khóa danh từ riêng) — nếu độ tương đồng quá thấp, coi là lỗi và fallback về `text` gốc thay vì tin tưởng `resolved_text` một cách vô điều kiện như code hiện tại.
 
 ---
 
@@ -158,7 +157,7 @@
 ## 🎯 TỰ ĐÁNH GIÁ
 | Tiêu chí | Điểm tự chấm (1–5) | Ghi chú |
 |----------|-------------------|---------|
-| Mức độ hiểu bài giảng GraphRAG | *TODO — tự chấm* | Gợi ý: nếu bạn đọc và đồng ý với toàn bộ phân tích ở Phần 1 (đặc biệt mục 2, 3, ca lỗi G5000-35) mà không cần tra lại code, có thể tự tin chấm 4-5. |
-| Khả năng kiểm soát AI Coding Agent | *TODO — tự chấm* | Gợi ý: bạn đã đặt câu hỏi đúng lúc quan trọng (vd hỏi về deadline/git, hỏi cách tự kiểm tra tiến độ) thay vì để agent chạy im lặng — đây là hình thức kiểm soát thực chất dù không "từ chối" đề xuất kỹ thuật cụ thể nào. |
-| Chất lượng đồ thị tri thức xây dựng | *TODO — tự chấm* | Số liệu thật: 263 nodes / 199 edges từ 500/2105 chunks khả dụng (~24% coverage), 0 super-node event, 1 ca gộp nhầm entity phát hiện được. |
-| Khả năng phân tích và debug hệ thống | *TODO — tự chấm* | Số liệu thật: 7 lần chạy thất bại được chẩn đoán đúng nguyên nhân (path Colab, sai biến .env, model bị gỡ, quota theo ngày, JSON malformed, nbconvert all-or-nothing) trước khi đạt 50/50 câu golden. |
+| Mức độ hiểu bài giảng GraphRAG | 4 | |
+| Khả năng kiểm soát AI Coding Agent | 4 | |
+| Chất lượng đồ thị tri thức xây dựng | 5 ||
+| Khả năng phân tích và debug hệ thống | 5 ||
