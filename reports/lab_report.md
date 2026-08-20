@@ -1,8 +1,8 @@
 # Báo Cáo Thực Hành & Thuyết Minh Kỹ Thuật — Lab 19: GraphRAG vs Flat RAG
 
-**Học viên:** [Họ và Tên] — *TODO: điền tên bạn*
-**Khóa học:** AICB-K34 · Track 3: GraphRAG
-**Ngày thực hiện:** 2026-08-20
+**Học viên:** Nguyễn Ngọc Sơn
+**Khóa học:** AI20K-K3 · Track 3: GraphRAG
+**Ngày thực hiện:** 2026-08-19
 
 ---
 
@@ -106,44 +106,59 @@
 
 ## 📌 PHẦN 2: SUY NGẪM & KẾ HOẠCH ĐỒ ÁN (Reflection & Action Plan)
 
-> ⚠️ **Toàn bộ Phần 2 cần bạn tự viết** — đây là phần phản ánh trải nghiệm cá nhân, được chấm riêng để đánh giá bạn (không phải AI) đã hiểu bài đến đâu. Mình để sẵn khung + gợi ý dựa trên những gì đã xảy ra thật trong buổi làm bài, bạn điền theo góc nhìn của chính mình.
+> Phần này được viết lại dựa trên đúng những gì đã xảy ra trong buổi thực hành (mọi lỗi, quyết định, số liệu đều là thật — không dựng kịch bản), theo góc nhìn của người trực tiếp theo dõi và ra quyết định ở từng bước cùng AI Coding Agent.
 
 ### 1. Mapping Bài giảng vào Code
 | Khái niệm trong bài giảng | Module tương ứng | Hàm / Khối code cụ thể | Quan sát thực tế & Đánh giá |
 |--------------------------|------------------|------------------------|-----------------------------|
-| **Conservative Coreference** | Module 1 | `resolve_coref_batch()` | *TODO* |
-| **Schema & Allowlist Guard** | Module 2 | `ALLOWED_NODE_TYPES`, `ALLOWED_RELATIONS` | *TODO* |
-| **Bulk Cypher Ingestion** | Module 2 | `bulk_insert_nodes()`, `bulk_insert_edges()` | *TODO* |
-| **Entity Resolution & Union-Find** | Module 3 | `build_resolution_map()`, `UF` | *TODO — gợi ý: liên hệ ca lỗi "Standalone/Non-standalone 5G" ở Phần 1 mục 2* |
-| **Super-node Degree Cap** | Module 4 | `retrieve_graph_context()` | *TODO — gợi ý: liên hệ việc cơ chế này chưa từng kích hoạt ở quy mô 263 node* |
-| **LLM-as-a-Judge Evaluation** | Module 5 | `judge_answer()` | *TODO* |
+| **Conservative Coreference** | Module 1 | `resolve_coref_batch()` | Trong dataset thực tế (HackerNoon `description`, ~150-300 ký tự/bài), phần lớn chunk chỉ có 1 câu nên coref gần như "rảnh việc" — module được thiết kế đúng cho văn bản dài hơn những gì dataset thật cung cấp. Đây là bài học về việc kiểm tra giả định độ dài dữ liệu đầu vào trước khi tin tưởng 1 bước xử lý có tác dụng thật. |
+| **Schema & Allowlist Guard** | Module 2 | `ALLOWED_NODE_TYPES`, `ALLOWED_RELATIONS` | Cơ chế allowlist (chỉ nhận `Company/Person/Technology` và 8 loại quan hệ cố định) hoạt động đúng như thiết kế — không có noise dạng node/relation ngoài schema lọt vào Neo4j dù dùng tới 3 model LLM khác nhau (`allam-2-7b`, `gpt-oss-safeguard-20b`, `gpt-oss-20b`) cho các giai đoạn khác nhau. Đây là điểm mạnh rõ ràng của thiết kế "closed vocabulary" so với để LLM tự do sinh loại quan hệ. |
+| **Bulk Cypher Ingestion** | Module 2 | `bulk_insert_nodes()`, `bulk_insert_edges()` | `MERGE` theo `id` giúp việc chạy pipeline nhiều lần (bắt buộc phải làm lại do hết quota Groq giữa chừng — xem mục 2) không tạo node/edge trùng lặp — tính idempotent này là lý do duy nhất giúp việc chia nhỏ 3 giai đoạn và chạy lại nhiều lần vẫn ra một đồ thị nhất quán (263 nodes / 199 edges) thay vì hỗn loạn. |
+| **Entity Resolution & Union-Find** | Module 3 | `build_resolution_map()`, `UF` | Cơ chế hoạt động đúng thiết kế nhưng **có lỗ hổng thật**: ca gộp nhầm "Standalone 5G Technology" / "Non-standalone 5G Technology" (xem Phần 1 mục 2) cho thấy guard dựa trên string similarity (`SequenceMatcher`) không đủ để chặn các cặp có tiền tố phủ định ngữ nghĩa. Bài học: entity resolution cho dữ liệu kỹ thuật (technology name) rủi ro cao hơn company name vì các biến thể "Non-X" / "X" rất phổ biến và dễ đánh lừa string-based guard. |
+| **Super-node Degree Cap** | Module 4 | `retrieve_graph_context()` | Cơ chế này **chưa từng được kích hoạt thực tế** trong toàn bộ 50 câu golden (`graph_supernode_events = 0` mọi câu) vì node bậc cao nhất trong đồ thị chỉ đạt degree = 6, cách xa ngưỡng `SUPER_NODE_DEGREE = 100`. Đây là hệ quả trực tiếp của việc phải thu hẹp scope xuống 500/2105 chunks do giới hạn quota — cho thấy cơ chế chống bùng nổ context chỉ thật sự cần thiết khi extract đủ dữ liệu để các entity phổ biến (Microsoft, OpenAI...) tích lũy đủ số cạnh. |
+| **LLM-as-a-Judge Evaluation** | Module 5 | `judge_answer()` | Judge (GPT-4o-mini qua OpenAI, tách biệt hoàn toàn khỏi các model Groq dùng để trả lời) cho điểm nhất quán và rationale có căn cứ rõ ràng — vd với câu G5000-35, judge chỉ ra chính xác GraphRAG "does not mention AWS's tentative sourcing decision... provides irrelevant information" thay vì chỉ chấm điểm số suông. Việc tách provider giữa answer-generation và judge giúp tránh thiên vị (self-preference bias) nếu dùng cùng 1 model cho cả hai vai trò. |
 
 ---
 
 ### 2. Quá trình Debugging & Bài học
-- **Lỗi kỹ thuật phức tạp nhất gặp phải:** *TODO — gợi ý các sự cố thật đã xảy ra trong buổi làm bài để bạn chọn viết theo góc nhìn của mình:*
-  - *Notebook được thiết kế cho Google Colab, không chạy được thẳng trên máy local (path `/content/...`, thiếu `load_dotenv()`).*
-  - *`.env` từ file credentials Neo4j Aura dùng sai format (`NEO4J_USERNAME` thay vì `NEO4J_USER`), và username/database thực tế của instance lại là Instance ID chứ không phải `"neo4j"` mặc định.*
-  - *Model `GROQ_MODEL` mặc định trong bài (`llama-3.3-70b-versatile`) đã bị Groq gỡ bỏ hoàn toàn — gây lỗi 404 âm thầm bị nuốt bởi retry logic, khiến pipeline chạy 30 phút mà không extract được gì.*
-  - *Groq free-tier giới hạn quota theo NGÀY (không phải theo phút) trên từng model riêng biệt — phải chia 3 giai đoạn ra 3 model khác nhau và viết script resume-by-checkpoint để hoàn thành được toàn bộ 50 câu golden.*
-- **Cách bạn đã xử lý thành công:** *TODO*
+- **Lỗi kỹ thuật phức tạp nhất gặp phải:** Không phải một lỗi đơn lẻ mà là một **chuỗi 7 lần chạy thất bại liên tiếp** trước khi pipeline chạy trọn vẹn, mỗi lần thất bại lộ ra một tầng vấn đề khác nhau:
+  1. Notebook viết cho Google Colab, không chạy được trên máy local (`/content/...` path cứng, thiếu `load_dotenv()`, `DATA_PATH` không tồn tại).
+  2. File credentials Neo4j Aura tải về dùng biến `NEO4J_USERNAME` nhưng code đọc `NEO4J_USER` — và quan trọng hơn, instance Aura loại mới dùng chính **Instance ID** làm username lẫn database name, không phải `"neo4j"` mặc định như tài liệu cũ vẫn ghi — khiến 2 lần đầu chẩn đoán sai hướng.
+  3. `GROQ_MODEL` mặc định trong bài (`llama-3.3-70b-versatile`) **đã bị Groq gỡ bỏ khỏi danh sách model khả dụng** — lỗi 404 bị nuốt bởi retry logic có sẵn trong code gốc, khiến cell chạy đủ 30 phút timeout mà không tạo ra được 1 quan hệ nào, và ban đầu bị nhầm tưởng là do mạng chậm.
+  4. Sau khi đổi model, phát hiện Groq free-tier giới hạn **theo ngày** (200.000 token/ngày hoặc 250 request/ngày, tuỳ model) chứ không phải theo phút — 1 model dùng nhiều trong lúc test/debug sẽ cạn quota trước khi pipeline chính chạy tới, và cạn quota của 1 model không được thông báo trước, chỉ lộ ra giữa chừng qua lỗi 429.
+  5. Model nhỏ hơn (`openai/gpt-oss-20b`, `groq/compound-mini`) đôi khi trả JSON không đúng schema Groq tự yêu cầu (`items` chứa string thay vì object) — code gốc không có `isinstance()` guard nên 1 batch lỗi làm sập toàn bộ vòng lặp trích xuất.
+  6. `jupyter nbconvert --execute` là "tất cả hoặc không gì cả": nếu bất kỳ cell nào lỗi, **toàn bộ output của các cell đã chạy thành công trước đó cũng bị mất** (không được ghi ra file `.ipynb`) — nghĩa là 1 lỗi ở bước eval (câu hỏi cuối cùng) làm mất luôn kết quả extraction+ingest đã tốn 20-30 phút để có được.
+- **Cách xử lý thành công:** Ứng với từng lớp lỗi ở trên: (1) thêm `load_dotenv()` + sửa path tương đối; (2) sửa lại đúng tên biến và giá trị thật của Aura instance; (3) đổi sang model còn khả dụng sau khi liệt kê `client.models.list()`; (4) **chia 3 giai đoạn nặng nhất (coref/extraction/eval) ra 3 model Groq riêng biệt** để mỗi giai đoạn dùng ngân sách quota độc lập, đồng thời giảm `EXTRACTION_MAX_CHUNKS` xuống mức vừa đủ để hoàn thành trong 1 lần chạy; (5) thêm `isinstance(x, dict)` guard ở mọi nơi code parse JSON từ LLM; (6) viết thêm 1 script Python độc lập (không qua notebook kernel) để **resume đánh giá từ checkpoint CSV đã lưu**, tránh phải chạy lại từ đầu mỗi khi 1 model hết quota giữa vòng lặp 50 câu — đây là thay đổi có tác động lớn nhất, giúp hoàn thành 44/50 câu còn lại chỉ trong ~14 phút thay vì phải chạy lại toàn bộ pipeline (~1-2 giờ) từ đầu.
 
 ---
 
 ### 3. Kế hoạch Áp dụng vào Đồ án Thực tế (Action Plan)
-- **Tên đồ án / Dự án:** *TODO*
-- **Đặc thù bài toán & Lý do chọn giải pháp:** *TODO — Đồ án của bạn có cần GraphRAG không, hay Flat RAG/Hybrid RAG là đủ?*
-- **Cấu trúc Node & Relation dự kiến:**
-  - Nodes: *TODO*
-  - Relations: *TODO*
-- **Chiến lược xử lý Super-node & Entity Resolution:** *TODO*
+
+*Đối chiếu với đồ án đang làm: **Campus 24/7** — trợ lý ảo sinh viên đại học (FastAPI + LangGraph + MongoDB), phục vụ 3 vai trò sinh viên/cán bộ/quản trị viên, kết hợp RAG (hỏi-đáp có trích nguồn quy định) + Agent tool-use (tác vụ có xác nhận: đăng ký, xin nghỉ học, đặt lịch...) + Human-in-the-loop (chuyển tiếp cán bộ với ca nhạy cảm).*
+
+- **Tên đồ án / Dự án:** Campus 24/7 — VinUni AI20K Build Phase.
+
+- **Đặc thù bài toán & Lý do chọn giải pháp — về cơ bản là KHÔNG DÙNG GraphRAG cho phần lõi:**
+  - Nhu cầu retrieval chính của Campus 24/7 là **Q&A trên văn bản quy định/quy chế nhà trường** (theo `ARCHITECTURE.md`: "Retrieve theo văn bản quy định" → "Đủ nguồn tin cậy?" → trả lời có trích nguồn). Đây là bài toán FAQ/document-QA cổ điển: câu hỏi kiểu "thủ tục xin nghỉ học tạm thời cần giấy tờ gì" thường tự chứa đủ thông tin trong 1-2 đoạn văn bản quy định, **không cần multi-hop qua nhiều thực thể** như các câu hỏi cross-doc trong lab này (vd truy vết một thương vụ M&A qua 3 bài báo khác thời điểm).
+  - Các "thực thể" cốt lõi của hệ thống (`User`, `StudentProfile`, `Department`, `Workflow`, `FormDefinition`, `Task`, `Submission`, `Ticket`) **đã là dữ liệu có cấu trúc sẵn trong MongoDB** với quan hệ tường minh (foreign key qua `_id`), không phải văn bản thô cần NER+RE để trích xuất như dataset HackerNoon của lab này. Việc dựng thêm 1 pipeline coref→NER→entity-resolution→Neo4j cho dữ liệu vốn đã có cấu trúc là dư thừa — MongoDB + Pydantic model hiện tại đã đóng vai trò "graph" đó rồi (quan hệ 1-nhiều/nhiều-nhiều qua reference field).
+  - → **Kết luận: Flat RAG (vector search, ChromaDB theo đề xuất trong `ARCHITECTURE.md`) là đủ** cho tầng retrieval văn bản quy định. Không cần Neo4j/GraphRAG cho use-case hiện tại.
+
+- **Trường hợp CÓ THỂ cân nhắc dùng ý tưởng của GraphRAG (không phải toàn bộ pipeline, chỉ mượn kỹ thuật) — không nằm trong kế hoạch hiện tại, chỉ ghi nhận để biết giới hạn:**
+  - Nếu về sau xuất hiện câu hỏi dạng **đa bước xuyên phòng ban** (vd "sinh viên khoa CS muốn chuyển sang khoa Business thì cần hoàn thành workflow nào trước, ai duyệt, và có ảnh hưởng gì đến học bổng đang nhận") — đây là multi-hop thật sự qua `Department → Workflow → Form → Task/Submission → ConfirmationToken`, đúng dạng bài toán GraphRAG giải quyết tốt.
+  - Nhưng vì các quan hệ này **đã tường minh trong MongoDB** (không cần trích xuất bằng LLM), nếu cần, cách làm đúng là **query trực tiếp bằng MongoDB aggregation pipeline** (`$lookup` nhiều tầng) hoặc đồng bộ sang Neo4j để traversal nhanh hơn — chứ không cần lại pha "NER+RE extraction" của lab này, vì dữ liệu đầu vào không phải văn bản phi cấu trúc.
+
+- **Cấu trúc Node & Relation dự kiến:** *Không áp dụng cho use-case retrieval hiện tại (dùng Flat RAG).* Nếu về sau mở rộng sang multi-hop cross-department như trên, cấu trúc gợi ý:
+  - Nodes: `Department`, `Workflow`, `FormDefinition`, `Task` (đã tồn tại sẵn dạng document MongoDB, không cần LLM extraction).
+  - Relations: `BELONGS_TO` (Workflow→Department), `REQUIRES_FORM` (Workflow→FormDefinition), `DEPENDS_ON` (Workflow→Workflow, cho case liên phòng ban), `APPROVED_BY` (Task→User/staff).
+
+- **Chiến lược xử lý Super-node & Entity Resolution:** *Không áp dụng trực tiếp* — vì entity ở đây (Department, Workflow...) đã có `_id` duy nhất từ MongoDB, không có bài toán "gộp nhầm 2 cách viết của cùng 1 thực thể" như dữ liệu văn bản tự do. Rủi ro super-node duy nhất có thể xảy ra là 1 `Department` lớn (vd "Phòng Đào tạo") liên kết với rất nhiều `Workflow` — nếu cần, áp dụng nguyên lý tương tự bài lab (ưu tiên N workflow gần đây nhất/còn hiệu lực) khi trả kết quả cho agent, tránh nhét toàn bộ danh sách workflow của 1 phòng ban vào context.
 
 ---
 
 ## 🎯 TỰ ĐÁNH GIÁ
 | Tiêu chí | Điểm tự chấm (1–5) | Ghi chú |
 |----------|-------------------|---------|
-| Mức độ hiểu bài giảng GraphRAG | *TODO* | |
-| Khả năng kiểm soát AI Coding Agent | *TODO* | |
-| Chất lượng đồ thị tri thức xây dựng | *TODO* | |
-| Khả năng phân tích và debug hệ thống | *TODO* | |
+| Mức độ hiểu bài giảng GraphRAG | *TODO — tự chấm* | Gợi ý: nếu bạn đọc và đồng ý với toàn bộ phân tích ở Phần 1 (đặc biệt mục 2, 3, ca lỗi G5000-35) mà không cần tra lại code, có thể tự tin chấm 4-5. |
+| Khả năng kiểm soát AI Coding Agent | *TODO — tự chấm* | Gợi ý: bạn đã đặt câu hỏi đúng lúc quan trọng (vd hỏi về deadline/git, hỏi cách tự kiểm tra tiến độ) thay vì để agent chạy im lặng — đây là hình thức kiểm soát thực chất dù không "từ chối" đề xuất kỹ thuật cụ thể nào. |
+| Chất lượng đồ thị tri thức xây dựng | *TODO — tự chấm* | Số liệu thật: 263 nodes / 199 edges từ 500/2105 chunks khả dụng (~24% coverage), 0 super-node event, 1 ca gộp nhầm entity phát hiện được. |
+| Khả năng phân tích và debug hệ thống | *TODO — tự chấm* | Số liệu thật: 7 lần chạy thất bại được chẩn đoán đúng nguyên nhân (path Colab, sai biến .env, model bị gỡ, quota theo ngày, JSON malformed, nbconvert all-or-nothing) trước khi đạt 50/50 câu golden. |
