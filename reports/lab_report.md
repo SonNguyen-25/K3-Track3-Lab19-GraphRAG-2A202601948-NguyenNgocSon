@@ -12,7 +12,7 @@
 > **Tình huống thực tế:** Nêu ít nhất 1 tình huống cụ thể trong dữ liệu HackerNoon mà cơ chế Coreference Resolution phân giải sai hoặc gặp khó khăn. Hậu quả của nó đối với Knowledge Graph là gì?
 
 *Trả lời:*
-- **Cách tìm:** `coref_df`/`extraction_source["resolved_text"]` không được lưu cố định trong file `.ipynb` (chỉ tồn tại trong bộ nhớ kernel lúc notebook chạy), nên để có ví dụ thật, mình chạy trực tiếp `resolve_coref_batch()` (model `allam-2-7b`, batch size 5) trên 60 chunk dài nhất của `data/hackernoon_subset.csv` và so sánh `text` gốc với `resolved_text`.
+- **Cách tìm:** `coref_df`/`extraction_source["resolved_text"]` không được lưu cố định trong file `.ipynb` (chỉ tồn tại trong bộ nhớ kernel lúc notebook chạy), nên để có ví dụ thật, em chạy trực tiếp `resolve_coref_batch()` (model `allam-2-7b`, batch size 5) trên 60 chunk dài nhất của `data/hackernoon_subset.csv` và so sánh `text` gốc với `resolved_text`.
 - **Ví dụ từ dữ liệu (chunk_id thật):**
   - `chunk_id = 671858229f9ac56dbcf2::c0000` — văn bản gốc: *"N obody talks about it but amateur radio guys are the backbone of American society. A recent example of such a guy is Doug an amateur ham radio operator who over Memorial Day weekend managed to get in contact with the International Space Station..."*
   - `chunk_id = acf645a2f67f7c379fcc::c0000` — văn bản gốc (chủ đề hoàn toàn khác — HR/IT automation): *"The result is that the more the platform is used the better it gets for everyone Schoenfelder says. HR and IT alike benefit from automation..."*
